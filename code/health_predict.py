@@ -1,107 +1,54 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jun 15 16:52:53 2018
 
-# coding: utf-8
-
-# In[101]:
-
-
+@author: sxx
+"""
 import numpy as np
 from keras.models import Sequential, load_model
 from keras.layers import Dense, LSTM, Dropout, Activation
 from sklearn.preprocessing import MinMaxScaler
-import os
 import matplotlib.pyplot as plt
-import sys
 from keras.utils.vis_utils import plot_model
-from IPython.display import SVG
-import time
 from keras.callbacks import Callback, ModelCheckpoint
 
+timesteps_in = 20
+timesteps_out = 5
+dim_in = 50
 
-# In[35]:
+def load_data(file):
+    xy = np.loadtxt(file, delimiter=',',skiprows=1)
+    x = xy[:,8:xy.shape[1]]
+    y = xy[:, 0]
+    return x,y
 
+def transform_data(x,y):
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    x_ = scaler.fit_transform(x)
+    y_ = y/100
+    return x_, y_
 
-timesteps = seq_length = 10
-data_dim = 50
-
-
-# In[123]:
-
-
-xy = np.loadtxt('./data/health_161.csv', delimiter=',',skiprows=1)
-
-
-# In[124]:
-
-
-x = xy[:,8:xy.shape[1]]
-y = xy[:, 0]
-
-
-# In[125]:
-
-
-scaler = MinMaxScaler(feature_range=(0, 1))
-x = scaler.fit_transform(x)
-y = y/100
-
-
-# In[129]:
+def format_data(x,y):
+    dataX = []
+    dataY = []
+    for i in range(0, len(y) - timesteps_in - timesteps_out):
+        _x = x[i:i + timesteps_in]
+        _y = y[i + timesteps_in:i + timesteps_in + timesteps_out]  # Next close price
+        #print(_x, "->", _y)
+        dataX.append(_x)
+        dataY.append(_y)   
+    return dataX, dataY
 
 
-dataX = []
-dataY = []
-for i in range(0, len(y) - seq_length):
-    _x = x[i:i + seq_length]
-    _y = y[i + seq_length]  # Next close price
-    print(_x, "->", _y)
-    dataX.append(_x)
-    dataY.append(_y)
-
-
-# In[130]:
-
-
-train_size = int(len(dataY) * 0.6)
-valid_size = int(len(dataY) * 0.8) - train_size 
-test_size = len(dataY) - valid_size
-trainX, validX, testX = np.array(dataX[0:train_size]), np.array(dataX[train_size:train_size+valid_size]), np.array(
-    dataX[train_size+valid_size:len(dataX)])
-trainY, validY, testY = np.array(dataY[0:train_size]), np.array(dataY[train_size:train_size+valid_size]),np.array(
-    dataY[train_size+valid_size:len(dataY)])
-
-
-# model = Sequential()
-# model.add(LSTM(1, input_shape=(seq_length, data_dim), return_sequences=False))
-# # model.add(Dense(1))
-# model.add(Activation("linear"))
-# model.compile(loss='mean_squared_error', optimizer='adam')
-# 
-# model.summary()
-# #plot_model(model, to_file=os.path.basename('model') + '.png', show_shapes=True)
-# #plot_model(model, to_file='model.png', show_shapes=True)
-# print(trainX.shape, trainY.shape)
-
-# In[131]:
-
-
-model = Sequential()
-model.add(LSTM(32, input_shape=(timesteps, data_dim), return_sequences=True))
-model.add(Dropout(0.3))
-model.add(LSTM(8, return_sequences=True))
-model.add(Dropout(0.3))
-model.add(LSTM(2, return_sequences=False))
-model.add(Dropout(0.3))
-model.add(Dense(8,activation = 'relu'))
-model.add(Dropout(0.3))
-model.add(Dense(1))
-model.add(Activation('linear'))
-model.compile(loss='mean_squared_error', optimizer='adam')
-model.summary()
-
-
-# In[132]:
-
-
+def divide_data(x,y):
+    train_size = int(len(y) * 0.6)
+    valid_size = int(len(y) * 0.8) - train_size 
+    test_size = len(y) - valid_size
+    trainX, validX, testX = np.array(x[0:train_size]), np.array(x[train_size:
+        train_size+valid_size]), np.array(x[train_size+valid_size:len(x)])
+    trainY, validY, testY = np.array(y[0:train_size]), np.array(y[train_size:
+        train_size+valid_size]),np.array(y[train_size+valid_size:len(y)])
+    return trainX,trainY,validX,validY,testX,testY
 #记录损失函数的历史数据
 class LossHistory(Callback):
     def on_train_begin(self, logs={}):
@@ -109,64 +56,94 @@ class LossHistory(Callback):
 
     def on_batch_end(self, batch, logs={}):
         self.losses.append(logs.get('loss'))
-history = LossHistory()
 
-#如果验证损失下降， 那么在每个训练轮之后保存模型。
-checkpointer = ModelCheckpoint(filepath='./models/health_check.hdf5', verbose=1, save_best_only=True)
+class LstmModel():
 
+    def __init__(self, model=None, epoches=200, batch_size=32, history = LossHistory()):
+        self._model = model
+        self._epoches = epoches
+        self._batch_size = batch_size
+        self._history = history
+        
+    def create_model(self):
+        self._model = Sequential()
+        self._model.add(LSTM(32, input_shape=(timesteps_in, dim_in), return_sequences=True))
+        self._model.add(Dropout(0.3))
+        self._model.add(LSTM(8, return_sequences=True))
+        self._model.add(Dropout(0.3))
+        self._model.add(LSTM(6, return_sequences=False))
+        self._model.add(Dropout(0.3))
+        self._model.add(Dense(8,activation = 'relu'))
+        self._model.add(Dropout(0.3))
+        self._model.add(Dense(5))
+        #self._model.add(Activation('linear'))
+        self._model.add(Activation('sigmoid'))
+        self._model.compile(loss='mean_squared_error', optimizer='adam')
+        self._model.summary()
+        return self._model
+    
+    def train_model(self, train_x, train_y, valid_x, valid_y, model_save_path):
+        self._model.fit(train_x, train_y, epochs=self._epoches, verbose=1, batch_size=self._batch_size, validation_data=(valid_x, valid_y), callbacks=[self._history], shuffle=False)
+        self._model.save(model_save_path)
+        
+        losses = self._history.losses
+        return losses
 
-# In[133]:
+def show_plot(testY,testPredict):
+    plt.figure(figsize=(24,48))
+    plt.subplot(511)
+    plt.plot(testY[0:200,1],c='r',label="train")
+    plt.plot(testPredict[0:200,1],c='g',label="predict")
+    plt.xlabel("time aix")
+    plt.ylabel("value aix")
+    plt.legend() 
+    
+    plt.subplot(512)
+    plt.plot(testY[0:200,2],c='r',label="train")
+    plt.plot(testPredict[0:200,2],c='g',label="predict")
+    plt.xlabel("time aix")
+    plt.ylabel("value aix")
+    plt.legend()
+    
+    plt.subplot(513)
+    plt.plot(testY[0:200,3],c='r',label="train")
+    plt.plot(testPredict[0:200,3],c='g',label="predict")
+    plt.xlabel("time aix")
+    plt.ylabel("value aix")
+    plt.legend()
+    
+    plt.subplot(514)
+    plt.plot(testY[0:200,4],c='r',label="train")
+    plt.plot(testPredict[0:200,4],c='g',label="predict")
+    plt.xlabel("time aix")
+    plt.ylabel("value aix")
+    plt.legend()
+    
+    plt.subplot(515)
+    plt.plot(testY[0:200,0],c='r',label="train")
+    plt.plot(testPredict[0:200,0],c='g',label="predict")
+    plt.xlabel("time aix")
+    plt.ylabel("value aix")
+    plt.legend() 
+    plt.savefig('reslut.png')
+    plt.show()
+    
+if __name__ == '__main__':
 
-
-model.fit(trainX, trainY, epochs=200, verbose=1, batch_size=32, 
-          validation_data=(validX, validY), callbacks=[history, checkpointer])
-
-
-# In[134]:
-
-
-#model.save('./models/health_'+ time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime()) + '.h5')
-model.save('./models/health.h5')
-#plot_model(model, to_file='./models/model.png', show_shapes=True, show_layer_names=True)
-
-
-# In[135]:
-
-
-losses = history.losses
-print ("history: ",np.mean(losses))
-#SVG(plot_model(model, to_file='./models/model.png', show_shapes=True, show_layer_names=True).create(prog='dot', format='svg'))
-
-
-# In[136]:
-
-
-loadModel = load_model('./models/health.h5')
-#loss = model.evaluate(x=testX, y=testY, batch_size=2)
-
-
-# In[137]:
-
-
-testPredict = loadModel.predict(testX)
-
-
-# In[155]:
-
-
-for i in range(0,len(testY)):
-    print (testPredict[i],"-->",testY[i])
-
-
-# In[156]:
-
-
-plt.figure(figsize=(24,6))
-plt.plot(testY[0:200],c='r',label="train")
-plt.plot(testPredict[0:200],c='g',label="predict")
-plt.xlabel("time aix")
-plt.ylabel("value aix")
-plt.legend() 
-plt.show()
-plt.savefig('reslut.jpg')
-
+    csvfile = './data/health_161.csv'
+    x,y = load_data(csvfile)
+    x_,y_ = transform_data(x,y)
+    datax,datay = format_data(x_,y_)
+    trainX,trainY,validX,validY,testX,testY = divide_data(datax,datay)
+    '''
+    lstmModel = LstmModel()
+    lstmModel.create_model()
+    save_path = './models/health_0615.h5'
+    lstmModel.train_model(trainX,trainY,validX,validY,save_path)
+    '''
+    print ("predict health score")
+    save_path = './models/health_0615.h5'
+    loadModel = load_model(save_path)
+    testPredict = loadModel.predict(testX)
+    show_plot(testY,testPredict)
+    print ("end",testPredict.shape)  
