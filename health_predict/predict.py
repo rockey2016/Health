@@ -140,7 +140,7 @@ def show_plot(testY,testPredict):
     plt.xlabel("time aix")
     plt.ylabel("value aix")
     plt.legend() 
-    plt.savefig('reslut_0626.png')
+    plt.savefig('./models/reslut_0626.png')
     plt.show()
     
 if __name__ == '__main__':
